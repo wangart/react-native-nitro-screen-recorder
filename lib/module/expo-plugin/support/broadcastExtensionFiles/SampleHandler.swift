@@ -144,6 +144,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var audioNodeURL: URL  // Mic audio
   private var appAudioNodeURL: URL  // App/system audio
   private var sawMicBuffers = false
+  private var lastMicBufferAt: TimeInterval = 0
   private var separateAudioFile: Bool = false
   private var isBroadcastActive = false
   private var isCapturing = false
@@ -152,9 +153,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
   // Serial queue for thread-safe writer operations
   private let writerQueue = DispatchQueue(label: "com.nitroscreenrecorder.writerQueue")
 
-  // Status update tracking - update every N frames to avoid excessive writes
-  private var frameCount: Int = 0
-  private let statusUpdateInterval: Int = 15  // Update every 15 frames (~0.25 sec at 60fps)
+  private var lastStatusUpdateAt: TimeInterval = 0
+  private let statusUpdateInterval: TimeInterval = 0.5
 
   // Chunk ID for queue-based retrieval (captured at markChunk, used at save)
   private var pendingChunkId: String?
@@ -248,6 +248,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
   // MARK: – Broadcast lifecycle
   override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
     startListeningForNotifications()
+
+    lastMicBufferAt = 0
 
     // Mark broadcast as active
     isBroadcastActive = true
@@ -372,7 +374,6 @@ final class SampleHandler: RPBroadcastSampleHandler {
       if sampleBufferType == .video {
         self.totalVideoFrames += 1
         self.videoFramesThisWriter += 1
-        self.frameCount += 1
 
         // Check for gap in frame delivery
         let now = Date()
@@ -391,15 +392,18 @@ final class SampleHandler: RPBroadcastSampleHandler {
           self.logInfo(
             "processSampleBuffer: FIRST VIDEO FRAME for writer #\(self.totalVideoFrames) total")
         }
-
-        if self.frameCount >= self.statusUpdateInterval {
-          self.frameCount = 0
-          self.updateExtensionStatus()
-        }
       }
 
       do {
         let success = try writer.processSampleBuffer(sampleBuffer, with: sampleBufferType)
+        let now = Date().timeIntervalSince1970
+        if sampleBufferType == .audioMic && success {
+          self.lastMicBufferAt = now
+        }
+        // Audio must publish health even when a static screen produces no video frames.
+        if now - self.lastStatusUpdateAt >= self.statusUpdateInterval {
+          self.updateExtensionStatus()
+        }
         if sampleBufferType == .video && !success && self.videoFramesThisWriter <= 3 {
           self.logWarning(
             "processSampleBuffer: Video frame \(self.videoFramesThisWriter) NOT appended")
@@ -418,9 +422,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
     else { return }
 
     defaults.set(sawMicBuffers, forKey: "ExtensionMicActive")
+    defaults.set(lastMicBufferAt, forKey: "ExtensionLastMicBufferAt")
     defaults.set(isCapturing, forKey: "ExtensionCapturing")
     defaults.set(chunkStartedAt, forKey: "ExtensionChunkStartedAt")
     defaults.synchronize()  // Force sync for cross-process visibility
+    lastStatusUpdateAt = Date().timeIntervalSince1970
   }
 
   override func broadcastPaused() {
@@ -516,6 +522,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
       // Create new writer with fresh file URLs
       self.createNewWriter()
+      // Publish this chunk before acknowledging it. Startup readiness must
+      // require microphone data accepted by this writer, not the previous one.
+      self.lastMicBufferAt = 0
+      self.updateExtensionStatus()
       
       // Verify writer was created successfully before sending ack
       let writerReady = self.writer != nil
@@ -1060,6 +1070,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     else { return }
 
     defaults.removeObject(forKey: "ExtensionMicActive")
+    defaults.removeObject(forKey: "ExtensionLastMicBufferAt")
     defaults.removeObject(forKey: "ExtensionCapturing")
     defaults.removeObject(forKey: "ExtensionChunkStartedAt")
     defaults.synchronize()

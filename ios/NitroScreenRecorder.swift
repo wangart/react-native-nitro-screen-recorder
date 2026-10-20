@@ -1390,7 +1390,9 @@ class NitroScreenRecorder: HybridNitroScreenRecorderSpec {
       )
     }
 
-    let isMicrophoneEnabled = defaults.bool(forKey: "ExtensionMicActive")
+    let lastMicBufferAt = defaults.double(forKey: "ExtensionLastMicBufferAt")
+    let micBufferAge = Date().timeIntervalSince1970 - lastMicBufferAt
+    let isMicrophoneEnabled = lastMicBufferAt > 0 && micBufferAge >= 0 && micBufferAge < 3
     let isCapturingChunk = defaults.bool(forKey: "ExtensionCapturing")
     let chunkStartedAt = defaults.double(forKey: "ExtensionChunkStartedAt")
 

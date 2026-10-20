@@ -563,6 +563,29 @@ class ScreenRecordingService : Service() {
   fun getChunkStartedAt(): Double = chunkStartedAt
   fun getCaptureMode(): CaptureMode = captureMode
   fun isMicrophoneEnabled(): Boolean = enableMic
+
+  /** Availability for readiness checks, separate from the configured enableMic flag. */
+  fun isMicrophoneAvailable(): Boolean {
+    if (!enableMic || mediaProjection == null) return false
+    // finalizeChunk deliberately releases the recorder while retaining the session.
+    // No audio is expected until markChunkStart creates the next recorder.
+    if (!isRecording && !isCapturing && mediaRecorder == null) return true
+    val recorder = mediaRecorder ?: return false
+    if (!isRecording) return false
+    return try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val configuration = recorder.activeRecordingConfiguration
+        configuration != null && !configuration.isClientSilenced
+      } else {
+        // Older Android cannot report policy silencing. This still detects an
+        // invalid recorder, but zero amplitude is valid silence, not a failure.
+        recorder.maxAmplitude
+        true
+      }
+    } catch (_: RuntimeException) {
+      false
+    }
+  }
   fun isSeparateAudioEnabled(): Boolean = separateAudioFile
   fun getLastAudioFile(): File? = currentAudioFile
   

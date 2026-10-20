@@ -658,7 +658,7 @@ class NitroScreenRecorder : HybridNitroScreenRecorderSpec() {
   override fun getExtensionStatus(): RawExtensionStatus {
     val service = globalRecordingService
     return RawExtensionStatus(
-      isMicrophoneEnabled = service?.isMicrophoneEnabled() ?: false,
+      isMicrophoneEnabled = service?.isMicrophoneAvailable() ?: false,
       isCapturingChunk = service?.isCapturingChunk() ?: false,
       chunkStartedAt = service?.getChunkStartedAt() ?: 0.0,
       captureMode = service?.getCaptureMode() ?: CaptureMode.UNKNOWN
