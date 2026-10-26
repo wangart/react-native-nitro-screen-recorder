@@ -148,6 +148,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var separateAudioFile: Bool = false
   private var isBroadcastActive = false
   private var isCapturing = false
+  private var isFinalizingChunk = false
   private var chunkStartedAt: Double = 0
 
   // Serial queue for thread-safe writer operations
@@ -250,6 +251,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     startListeningForNotifications()
 
     lastMicBufferAt = 0
+    isFinalizingChunk = false
 
     // Mark broadcast as active
     isBroadcastActive = true
@@ -424,6 +426,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(sawMicBuffers, forKey: "ExtensionMicActive")
     defaults.set(lastMicBufferAt, forKey: "ExtensionLastMicBufferAt")
     defaults.set(isCapturing, forKey: "ExtensionCapturing")
+    defaults.set(isFinalizingChunk, forKey: "ExtensionFinalizingChunk")
     defaults.set(chunkStartedAt, forKey: "ExtensionChunkStartedAt")
     defaults.synchronize()  // Force sync for cross-process visibility
     lastStatusUpdateAt = Date().timeIntervalSince1970
@@ -495,6 +498,16 @@ final class SampleHandler: RPBroadcastSampleHandler {
       if let groupID = hostAppGroupIdentifier {
         self.pendingChunkId = UserDefaults(suiteName: groupID)?.string(forKey: "CurrentChunkId")
         self.logInfo("handleMarkChunk: Captured chunkId=\(self.pendingChunkId ?? "nil")")
+      }
+
+      // finishWithAudio blocks the writer queue, including microphone callbacks.
+      // Publish before blocking so consumers distinguish saving from capture loss.
+      self.isFinalizingChunk = true
+      self.updateExtensionStatus()
+      defer {
+        self.isFinalizingChunk = false
+        self.lastMicBufferAt = 0  // The replacement writer must receive fresh samples.
+        self.updateExtensionStatus()
       }
 
       // Finish current writer without saving
@@ -578,6 +591,16 @@ final class SampleHandler: RPBroadcastSampleHandler {
       // Mark capturing as done (will restart with next markChunkStart)
       self.isCapturing = false
       self.chunkStartedAt = 0
+
+      // finishWithAudio blocks the writer queue, including microphone callbacks.
+      // Publish before blocking so consumers distinguish saving from capture loss.
+      self.isFinalizingChunk = true
+      self.updateExtensionStatus()
+      defer {
+        self.isFinalizingChunk = false
+        self.lastMicBufferAt = 0  // The replacement writer must receive fresh samples.
+        self.updateExtensionStatus()
+      }
 
       // Helper to send notification (call before any early return)
       func sendChunkNotification() {
@@ -1072,6 +1095,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.removeObject(forKey: "ExtensionMicActive")
     defaults.removeObject(forKey: "ExtensionLastMicBufferAt")
     defaults.removeObject(forKey: "ExtensionCapturing")
+    defaults.removeObject(forKey: "ExtensionFinalizingChunk")
     defaults.removeObject(forKey: "ExtensionChunkStartedAt")
     defaults.synchronize()
   }

@@ -422,6 +422,7 @@ class ScreenRecordingService : Service() {
       return
     }
 
+    isFinalizing = true
     try {
       // Save references to old recorder/file (may be null if coming from finalizeChunk)
       val oldRecorder = mediaRecorder
@@ -490,6 +491,8 @@ class ScreenRecordingService : Service() {
         message = e.message ?: "Failed to start chunk"
       )
       NitroScreenRecorder.notifyGlobalRecordingError(error)
+    } finally {
+      isFinalizing = false
     }
   }
 
@@ -517,6 +520,7 @@ class ScreenRecordingService : Service() {
 
     var chunkFile: File? = null
 
+    isFinalizing = true
     try {
       val chunkEndedAt = System.currentTimeMillis() / 1000.0
       val chunkDuration = chunkEndedAt - chunkStartedAt
@@ -553,12 +557,17 @@ class ScreenRecordingService : Service() {
         message = e.message ?: "Failed to finalize chunk"
       )
       NitroScreenRecorder.notifyGlobalRecordingError(error)
+    } finally {
+      isFinalizing = false
     }
 
     return chunkFile
   }
 
+  @Volatile private var isFinalizing = false
+
   // Status getters for NitroScreenRecorder
+  fun isFinalizingChunk(): Boolean = isFinalizing
   fun isCapturingChunk(): Boolean = isCapturing
   fun getChunkStartedAt(): Double = chunkStartedAt
   fun getCaptureMode(): CaptureMode = captureMode

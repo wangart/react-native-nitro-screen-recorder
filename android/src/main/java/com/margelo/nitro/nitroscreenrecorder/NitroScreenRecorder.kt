@@ -660,6 +660,7 @@ class NitroScreenRecorder : HybridNitroScreenRecorderSpec() {
     return RawExtensionStatus(
       isMicrophoneEnabled = service?.isMicrophoneAvailable() ?: false,
       isCapturingChunk = service?.isCapturingChunk() ?: false,
+      isFinalizingChunk = service?.isFinalizingChunk() ?: false,
       chunkStartedAt = service?.getChunkStartedAt() ?: 0.0,
       captureMode = service?.getCaptureMode() ?: CaptureMode.UNKNOWN
     )
